@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>ClipGrab</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#272b35;--text:#e8eaed;--mute:#9aa0aa;--accent:#4f8cff;--ok:#34c759;--err:#ff6161}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Noto Sans Thai","Sarabun",sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:720px;margin:0 auto;padding:16px 16px 80px}
+h1{font-size:22px;margin:8px 0 2px}
+.sub{color:var(--mute);margin:0 0 16px;font-size:13px}
+h2{font-size:15px;margin:24px 0 10px;color:var(--mute);font-weight:600}
+textarea{width:100%;min-height:96px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;resize:vertical}
+textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+.btn{display:inline-block;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:600;background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;text-align:center}
+.btn.ghost{background:var(--line);color:var(--text)}
+.btn.small{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.5}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.card{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
+.card img,.ph{width:112px;height:63px;border-radius:8px;object-fit:cover;background:#222;flex:none}
+.ph{display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:12px}
+.info{min-width:0;flex:1}
+.title{font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.meta{color:var(--mute);font-size:12.5px;margin-top:2px}
+.err{color:var(--err)}
+.x{background:none;border:0;color:var(--mute);font-size:20px;line-height:1;padding:2px 6px;cursor:pointer;align-self:flex-start}
+.seg{display:flex;background:var(--line);border-radius:10px;padding:3px}
+.seg button{border:0;background:none;color:var(--mute);padding:8px 14px;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.seg button.on{background:var(--accent);color:#fff}
+select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:inherit}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 4px}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.job.done .bar i{background:var(--ok)}
+.job.error .bar i,.job.cancelled .bar i{background:var(--err)}
+.acts{display:flex;gap:8px;margin-top:6px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--mute);border-top-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-1px;margin-right:6px}
+@keyframes s{to{transform:rotate(360deg)}}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a2f3a;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90%}
+#toast.show{opacity:1}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ClipGrab</h1>
+  <p class="sub">วางลิงก์คลิปได้หลายลิงก์ (YouTube, TikTok, Facebook, Instagram, X ฯลฯ) ลิงก์ละบรรทัด</p>
+
+  <textarea id="links" placeholder="https://..."></textarea>
+  <div class="row">
+    <button class="btn" id="analyze">ดึงข้อมูลคลิป</button>
+    <button class="btn ghost" id="clear">ล้าง</button>
+  </div>
+
+  <div id="cards" style="margin-top:16px"></div>
+
+  <div id="actions" hidden>
+    <h2>ตัวเลือกการดาวน์โหลด</h2>
+    <div class="row" style="margin-top:0">
+      <div class="seg" id="seg">
+        <button data-f="mp4" class="on">วิดีโอ MP4</button>
+        <button data-f="mp3">เสียง MP3</button>
+        <button data-f="thumb">ภาพปก</button>
+      </div>
+      <select id="quality">
+        <option value="">คุณภาพสูงสุด</option>
+        <option value="1080">สูงสุด 1080p</option>
+        <option value="720">สูงสุด 720p</option>
+        <option value="480">สูงสุด 480p</option>
+        <option value="360">สูงสุด 360p</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="btn" id="go" style="flex:1">ดาวน์โหลด</button>
+    </div>
+  </div>
+
+  <div id="jobsSection" hidden>
+    <h2>รายการดาวน์โหลด</h2>
+    <div id="jobs"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const cards = new Map();
+let format = 'mp4';
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2500);
+}
+const fmtDur = s => {
+  if (!s) return '';
+  s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+};
+const fmtSpeed = b => !b ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB/s' : Math.round(b / 1024) + ' KB/s';
+const fmtEta = s => s == null ? '' : s >= 60 ? Math.floor(s / 60) + ' นาที ' + (s % 60) + ' วิ' : s + ' วิ';
+const extractUrls = t => [...new Set(t.match(/https?:\/\/[^\s<>"']+/g) || [])];
+const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+
+// ---------- cards (พรีวิว)
+function renderCards() {
+  const box = $('#cards'); box.textContent = '';
+  let ok = 0;
+  for (const c of cards.values()) {
+    const card = el('div', 'card');
+    if (c.status === 'ok' && c.thumbnail) {
+      const img = el('img'); img.loading = 'lazy'; img.alt = '';
+      img.src = '/api/thumb?url=' + encodeURIComponent(c.thumbnail);
+      img.onerror = () => img.replaceWith(el('div', 'ph', 'ไม่มีภาพ'));
+      card.append(img);
+    } else card.append(el('div', 'ph', c.status === 'loading' ? '' : 'ไม่มีภาพ'));
+    const info = el('div', 'info');
+    if (c.status === 'loading') {
+      const t = el('div', 'title'); t.append(el('span', 'spin'), 'กำลังดึงข้อมูล…');
+      info.append(t, el('div', 'meta', c.url));
+    } else if (c.status === 'error') {
+      info.append(el('div', 'title err', 'ดึงข้อมูลไม่สำเร็จ'), el('div', 'meta err', c.error), el('div', 'meta', c.url));
+    } else {
+      ok++;
+      info.append(el('div', 'title', c.title),
+        el('div', 'meta', [c.site, c.uploader, fmtDur(c.duration)].filter(Boolean).join(' · ')));
+    }
+    const x = el('button', 'x', '×'); x.title = 'เอาออก';
+    x.onclick = () => { cards.delete(c.url); renderCards(); };
+    card.append(info, x);
+    box.append(card);
+  }
+  $('#actions').hidden = ok === 0;
+  $('#go').textContent = ok > 1 ? `ดาวน์โหลด ${ok} คลิป` : 'ดาวน์โหลด';
+}
+
+async function loadInfo(u) {
+  try {
+    const r = await post('/api/info', {url: u});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'ดึงข้อมูลไม่สำเร็จ');
+    if (cards.has(u)) cards.set(u, {...d, url: u, status: 'ok'});
+  } catch (e) {
+    if (cards.has(u)) cards.set(u, {url: u, status: 'error', error: e.message});
+  }
+  renderCards();
+}
+
+async function analyze() {
+  const urls = extractUrls($('#links').value);
+  if (!urls.length) return toast('ยังไม่พบลิงก์ในช่องข้อความ');
+  $('#links').value = '';
+  const fresh = urls.filter(u => !cards.has(u));
+  fresh.forEach(u => cards.set(u, {url: u, status: 'loading'}));
+  renderCards();
+  const queue = [...fresh];
+  const worker = async () => { while (queue.length) await loadInfo(queue.shift()); };
+  await Promise.all([worker(), worker(), worker()]);
+}
+
+// ---------- download
+async function startDownload() {
+  const items = [...cards.values()].filter(c => c.status === 'ok');
+  if (!items.length) return;
+  const r = await post('/api/download', {
+    format, quality: $('#quality').value,
+    items: items.map(c => ({url: c.url, title: c.title, thumbnail: c.thumbnail}))
+  });
+  if (!r.ok) return toast('เริ่มดาวน์โหลดไม่สำเร็จ');
+  items.forEach(c => cards.delete(c.url));
+  renderCards(); poll();
+  toast(`เพิ่ม ${items.length} รายการเข้าคิวแล้ว`);
+}
+
+// ---------- jobs
+const jobEls = new Map();
+const ACTIVE = ['queued', 'downloading', 'processing'];
+
+function makeJob(j) {
+  const root = el('div', 'card job');
+  const img = j.thumbnail ? el('img') : el('div', 'ph', '');
+  if (j.thumbnail) { img.alt = ''; img.src = '/api/thumb?url=' + encodeURIComponent(j.thumbnail); img.onerror = () => img.replaceWith(el('div', 'ph', '')); }
+  const info = el('div', 'info');
+  const title = el('div', 'title', j.title);
+  const bar = el('div', 'bar'), fill = el('i'); bar.append(fill);
+  const status = el('div', 'meta');
+  const acts = el('div', 'acts');
+  info.append(title, bar, status, acts);
+  root.append(img, info);
+  return {root, fill, status, acts, last: null};
+}
+
+function updateJob(e, j) {
+  e.root.className = 'card job ' + j.status;
+  e.fill.style.width = (j.status === 'done' ? 100 : j.percent || 0) + '%';
+  const fmtName = {mp4: 'MP4', mp3: 'MP3', thumb: 'ภาพปก'}[j.format];
+  let text = '';
+  if (j.status === 'queued') text = 'รอคิว · ' + fmtName;
+  else if (j.status === 'downloading') text = [`กำลังโหลด ${Math.round(j.percent)}%`, fmtSpeed(j.speed), j.eta != null ? 'เหลือ ' + fmtEta(j.eta) : ''].filter(Boolean).join(' · ');
+  else if (j.status === 'processing') text = 'กำลังรวมไฟล์/แปลงเสียง…';
+  else if (j.status === 'done') text = 'เสร็จแล้ว · ' + (j.filename || '');
+  else if (j.status === 'cancelled') text = 'ยกเลิกแล้ว';
+  else text = 'ผิดพลาด: ' + (j.error || '');
+  e.status.textContent = text;
+  e.status.classList.toggle('err', j.status === 'error');
+  if (e.last === j.status) return;
+  e.last = j.status; e.acts.textContent = '';
+  if (ACTIVE.includes(j.status)) {
+    const b = el('button', 'btn ghost small', 'ยกเลิก');
+    b.onclick = () => post(`/api/jobs/${j.id}/cancel`).then(poll);
+    e.acts.append(b);
+  } else {
+    if (j.status === 'done') {
+      const a = el('a', 'btn small', 'บันทึกไฟล์'); a.href = `/api/file/${j.id}`; a.setAttribute('download', j.filename || '');
+      e.acts.append(a);
+    }
+    const d = el('button', 'btn ghost small', 'ลบรายการ');
+    d.onclick = () => fetch(`/api/jobs/${j.id}`, {method: 'DELETE'}).then(() => { e.root.remove(); jobEls.delete(j.id); $('#jobsSection').hidden = !jobEls.size; });
+    e.acts.append(d);
+  }
+}
+
+function renderJobs(jobs) {
+  const box = $('#jobs');
+  const ids = new Set(jobs.map(j => j.id));
+  for (const [id, e] of jobEls) if (!ids.has(id)) { e.root.remove(); jobEls.delete(id); }
+  [...jobs].reverse().forEach(j => {
+    let e = jobEls.get(j.id);
+    if (!e) { e = makeJob(j); jobEls.set(j.id, e); box.prepend(e.root); }
+    updateJob(e, j);
+  });
+  $('#jobsSection').hidden = jobs.length === 0;
+}
+
+let polling = false;
+async function poll() {
+  if (polling) return; polling = true;
+  try {
+    for (;;) {
+      let jobs = [];
+      try { jobs = await (await fetch('/api/jobs')).json(); renderJobs(jobs); } catch (e) {}
+      if (!jobs.some(j => ACTIVE.includes(j.status))) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  } finally { polling = false; }
+}
+
+// ---------- events
+$('#analyze').onclick = analyze;
+$('#clear').onclick = () => { $('#links').value = ''; cards.clear(); renderCards(); };
+$('#go').onclick = startDownload;
+$('#seg').onclick = ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  format = b.dataset.f;
+  document.querySelectorAll('#seg button').forEach(x => x.classList.toggle('on', x === b));
+  $('#quality').hidden = format !== 'mp4';
+};
+poll();
+</script>
+</body>
+</html>
